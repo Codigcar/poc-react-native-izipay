@@ -1,118 +1,127 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
+import {useRef, useState} from 'react';
+import {Button} from 'react-native';
+import axios from 'axios';
 
-import React from 'react';
-import type {PropsWithChildren} from 'react';
-import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
+import IziPayWebviewScreen from './src/Izipay.webview';
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+export const MERCHANT_CODE = '4004345';
+export const PUBLIC_KEY = 'VErethUtraQuxas57wuMuquprADrAHAb';
+export const ORDER_CURRENCY = 'PEN';
+export const REQUEST_SOURCE = 'ECOMMERCE';
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
-
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
+interface IResponseToken {
+  code: string;
+  message: string;
+  response: IResponse;
 }
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+interface IResponse {
+  token: string;
+  userOrg: string;
+  userScoring: string;
+}
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+const ApiIzipay = axios.create({
+  baseURL: 'https://sandbox-api-pw.izipay.pe:443',
+});
+
+const GENERATE_ORDER = () => {
+  const currentTimeUnix = Math.floor(Date.now()) * 1000;
+
+  return {
+    currentTimeUnix,
+    transactionId: currentTimeUnix.toString().slice(0, 14),
+    orderNumber: currentTimeUnix.toString().slice(0, 10).toString(),
+  };
+};
+
+const GET_TOKEN_SESSION = async (
+  transactionId: string,
+  orderNumber: string,
+  amount: string,
+) => {
+  const amountDecimal = String(parseFloat(amount).toFixed(2));
+  const headers = {
+    'Content-Type': 'application/json',
+    transactionId: transactionId,
+  };
+
+  const data = {
+    requestSource: REQUEST_SOURCE,
+    merchantCode: MERCHANT_CODE,
+    orderNumber,
+    publicKey: PUBLIC_KEY,
+    amount: amountDecimal,
+  };
+
+  const response = await ApiIzipay.post<IResponseToken>(
+    '/security/v1/Token/Generate',
+    data,
+    {
+      headers,
+    },
+  );
+  console.log('RESPONSE', JSON.stringify(response.data, null, 2));
+  return response.data;
+};
+
+const useIziPay = () => {
+  const dataOrderIziPay = useRef<any>();
+  const tokenIziPay = useRef<any>();
+
+  const fetchIziPay = async () => {
+    try {
+      const getDataOrder = GENERATE_ORDER();
+      dataOrderIziPay.current = getDataOrder;
+      const getToken = await GET_TOKEN_SESSION(
+        getDataOrder.transactionId,
+        getDataOrder.orderNumber,
+        '10',
+      );
+      tokenIziPay.current = getToken.response.token;
+      return {status: true};
+    } catch (error) {
+      return {status: false};
+    }
+  };
+
+  return {
+    fetchIziPay,
+    dataOrderIziPay,
+    tokenIziPay,
+  };
+};
+
+const App = () => {
+  const {fetchIziPay, dataOrderIziPay, tokenIziPay} = useIziPay();
+
+  const [showWebview, setShowWebview] = useState(false);
+
+  const init = async () => {
+    const {status} = await fetchIziPay();
+    if (!status) return;
+    setShowWebview(true);
   };
 
   return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
+    <>
+      <Button
+        title="Mostrar Izipay"
+        onPress={() => init()}
+        disabled={showWebview}
       />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+      {showWebview ? (
+        <IziPayWebviewScreen
+          amount="10"
+          token={tokenIziPay.current}
+          transactionId={dataOrderIziPay.current.transactionId}
+          orderNumber={dataOrderIziPay.current.orderNumber}
+          currentTimeUnix={dataOrderIziPay.current.currentTimeUnix}
+          onRequestClose={() => setShowWebview(false)}
+        />
+      ) : null}
+    </>
   );
-}
-
-const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
-  },
-  highlight: {
-    fontWeight: '700',
-  },
-});
+};
 
 export default App;
